@@ -16,8 +16,6 @@ using namespace std;
 
 void sig_handler(int);
 
-
-
 class Jeton {
     public:
         Jeton () {
@@ -144,23 +142,84 @@ Jeton JetonStack[] = {
 };
 int nbJetons = 27;
 
+// For progress reporting and visualization
 int maxDepth=-1;
-int cntD1=0;
-
 Jeton *GSeen;
 int GNbSeen;
 int *counters;
+long int totcnt=0;
+
+// /****************************************************************************
+//  Data structures for heuristics
+//  ****************************************************************************/
+
+#ifdef HEUR_HIST
+
+class Hist {
+    public:
+        Hist () {
+            for (int i=0; i<9; ++i)
+                h[i]=0;
+        }    
+        void add (int n, int v) {
+            h[n] += v;
+        }
+        void inc (int n) {
+            h[n] += 1;
+        }
+        void dec (int n) {
+            h[n] -= 1;
+        }
+        int h[9];
+};
+
+Hist HSeen, HNotSeen;
+
+void updateHist (int p, Jeton *newJ, int value) {
+
+    for (int i=0; i<2; ++i) {
+        int n=NE[p][i];
+        if (n!=-1) {
+            // The neighbor is empty => we require a new number
+            if (board[n].n==0)
+                HSeen.add(newJ->e, value);                      
+            // The neighbor is not empty => we remove a requirement
+            else
+                HSeen.add(newJ->e, 1*value);
+        }
+    }
+
+    for (int i=0; i<2; ++i) {
+        int n=NW[p][i];
+        if (n!=-1) {
+            // The neighbor is empty => we require a new number
+            if (board[n].n==0)
+                HSeen.add(newJ->w, value);                       
+            // The neighbor is not empty => we remove a requirement
+            else
+                HSeen.add(newJ->w, -1*value);
+        }
+    }
+
+    for (int i=0; i<2; ++i) {
+        int n=NN[p][i];
+        if (n!=-1) {
+            // The neighbor is empty => we require a new number
+            if (board[n].n==0)
+                HSeen.add(newJ->n, value);                       
+            // The neighbor is not empty => we remove a requirement
+            else
+                HSeen.add(newJ->n, -1*value);
+        }
+    }
+}
+#endif
 
 /****************************************************************************
  Print a found solution
  ****************************************************************************/
 
-void printSolution (Jeton *seen, int nbSeen) {
-    /*
-    for (int i=0; i<NO_SLOTS; ++i) {
-        cout << i << ":" << board[i] << " ";
-    }
-    */    
+void printSolution (Jeton *seen, int nbSeen) {    
     for (int i=0; i<3; ++i) 
         cout << i << ":" << board[i] << " ";
     cout << "\n";
@@ -184,12 +243,6 @@ void printSolution (Jeton *seen, int nbSeen) {
 
 bool check (Jeton *seen, int nbSeen, int newp, Jeton *newJ) {
 
-#ifdef DEBUG            
-    cout << "--- Check:" << *newJ << "->" << newp << ". Board:\n";
-    printSolution(seen, nbSeen);
-    cout << "---.\n";
-#endif 
-
     // Go over the eastern neighbors
     for (int i=0; i<MAX_NEIGHBORS; ++i) {
         int p=NE[newp][i];
@@ -199,10 +252,7 @@ bool check (Jeton *seen, int nbSeen, int newp, Jeton *newJ) {
             p=NE[p][i];                
            
         // We found a valid non empty neighboring slot 
-        if (p!=-1) {
-#ifdef DEBUG            
-            cout << "[" << p << "," << newp << "=>" << board[p] << "?" << board[newp] << "]\n";
-#endif            
+        if (p!=-1) {          
             if (board[p].e != newJ->e)
                 return false;            
         }
@@ -247,6 +297,14 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
 {
     GSeen = seen;
     GNbSeen = nbSeen;    
+    ++totcnt;
+
+#ifdef HEUR_HIST
+    // Check heuristic: we need numbers which do not exist
+    for (int i=0; i<9; ++i) 
+        if (HSeen.h[i] > HNotSeen.h[i])
+            return;            
+#endif
 
     if (depth>maxDepth) {
         maxDepth = depth;
@@ -269,10 +327,6 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
             for (int p=0; p<NO_SLOTS; ++p) {
                 if (board[p].n==0) {
 
-                    // if (depth==17) {
-                    //     cout << "D17: " << notSeen[i] << " -> " << p << endl;
-                    // }
-
                     // Check whether the i-th not seen piece positioned at 
                     // position p is compatible with the current solution
                     if (check(seen, nbSeen, p, notSeen+i)) {
@@ -281,8 +335,22 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
                         board[p] = notSeen[i];
                         seen[nbSeen] = notSeen[i];
                         notSeen[i] = notSeen[nbNotSeen-1];
+
+#ifdef HEUR_HIST                        
+                        updateHist (p, notSeen+i, 1);
+                        HNotSeen.dec(notSeen[i].e);
+                        HNotSeen.dec(notSeen[i].w);
+                        HNotSeen.dec(notSeen[i].n);
+#endif                        
                                                                          
                         F(seen,nbSeen+1,notSeen,nbNotSeen-1, depth+1);
+
+#ifdef HEUR_HIST
+                        updateHist (p, notSeen+i, -1);
+                        HNotSeen.inc(notSeen[i].e);
+                        HNotSeen.inc(notSeen[i].w);
+                        HNotSeen.inc(notSeen[i].n);
+#endif
                         
                         notSeen[nbNotSeen-1] = notSeen[i];
                         notSeen[i] = seen[nbSeen];
@@ -306,12 +374,17 @@ void sig_handler(int sig) {
             cout << i << ":" << counters[i] << " ";
         cout << "\nCurrent partial solution:\n";
         printSolution(GSeen, GNbSeen);
+        cout << "Total number of calls: " << totcnt << endl;
         break;        
     default:
         cout << "Unexpected signal!\n";
         abort();
     }
 }
+
+/****************************************************************************
+ MAIN
+ ****************************************************************************/
 
 int main () {
     cout << "************* Take it easy.\n";
@@ -320,6 +393,15 @@ int main () {
 
     Jeton *Seen = new Jeton [nbJetons];
     counters = new int [nbJetons];
+
+#ifdef HEUR_HIST
+    cout << "Using histogram heuristics.\n";
+    for (int i=0; i<nbJetons; ++i) {
+        HNotSeen.inc (JetonStack[i].e);
+        HNotSeen.inc (JetonStack[i].w);
+        HNotSeen.inc (JetonStack[i].n);
+    }
+#endif   
     
     F (Seen, 0, JetonStack, nbJetons, 0);
 
