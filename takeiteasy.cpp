@@ -7,11 +7,16 @@
  ****************************************************************************/
 
 #include <iostream>
+#include <signal.h>
 
 # define NO_SLOTS      19
 # define MAX_NEIGHBORS  2
 
 using namespace std;
+
+void sig_handler(int);
+
+
 
 class Jeton {
     public:
@@ -21,8 +26,7 @@ class Jeton {
         Jeton (unsigned char _n, unsigned char _w, unsigned char _e) {
             n=_n; w=_w; e=_e;        
         }
-        unsigned char n,w,e;    // north, west, east numbers
-        unsigned char x,y;      // coordinates of slot
+        unsigned char n,w,e;    // north, west, east numbers    
 
         friend ostream& operator <<(ostream &os, const Jeton& j);
 };
@@ -141,6 +145,11 @@ Jeton JetonStack[] = {
 int nbJetons = 27;
 
 int maxDepth=-1;
+int cntD1=0;
+
+Jeton *GSeen;
+int GNbSeen;
+int *counters;
 
 /****************************************************************************
  Print a found solution
@@ -230,24 +239,20 @@ bool check (Jeton *seen, int nbSeen, int newp, Jeton *newJ) {
     return true;
 }
 
-
-
 /****************************************************************************
  The main recursive function
  ****************************************************************************/
 
 void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
 {
+    GSeen = seen;
+    GNbSeen = nbSeen;    
+
     if (depth>maxDepth) {
         maxDepth = depth;
         cout << "New Max depth: " << maxDepth << endl;
     }
-
-    // if (depth==18) {
-    //     printSolution(seen, nbSeen);
-    //     exit(0);
-    // }
-
+    
     if (nbSeen >= 19)
 	{
         cout << "****** SOLUTION\n"; 
@@ -258,9 +263,7 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
         // Go through the unseen pieces
         for (int i=0; i<nbNotSeen; i++)
         {           
-            // if (depth==17) {
-            //     cout << "D17: i=" << i << notSeen[i] << endl;
-            // }
+            counters[depth] = i;            
 
             // Go through the places and search for an empty one
             for (int p=0; p<NO_SLOTS; ++p) {
@@ -278,7 +281,7 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
                         board[p] = notSeen[i];
                         seen[nbSeen] = notSeen[i];
                         notSeen[i] = notSeen[nbNotSeen-1];
-                        
+                                                                         
                         F(seen,nbSeen+1,notSeen,nbNotSeen-1, depth+1);
                         
                         notSeen[nbNotSeen-1] = notSeen[i];
@@ -291,12 +294,36 @@ void F (Jeton *seen, int nbSeen, Jeton *notSeen, int nbNotSeen, int depth)
     }    
 }
 
+/****************************************************************************
+ SIGINT signal: display status information
+ ****************************************************************************/
+
+void sig_handler(int sig) {
+    switch (sig) {
+    case SIGINT:
+        cout << ("Caught signal: iterations for each depth:\n");
+        for (int i=0; i<NO_SLOTS; ++i)
+            cout << i << ":" << counters[i] << " ";
+        cout << "\nCurrent partial solution:\n";
+        printSolution(GSeen, GNbSeen);
+        break;        
+    default:
+        cout << "Unexpected signal!\n";
+        abort();
+    }
+}
+
 int main () {
     cout << "************* Take it easy.\n";
 
+    signal(SIGINT, sig_handler);
+
     Jeton *Seen = new Jeton [nbJetons];
+    counters = new int [nbJetons];
     
     F (Seen, 0, JetonStack, nbJetons, 0);
 
+    delete [] Seen;
+    delete [] counters;
     cout << "Done.\n";
 }
