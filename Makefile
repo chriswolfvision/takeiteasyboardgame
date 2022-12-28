@@ -1,2 +1,2 @@
 all:
-	cc -O3 -o takeiteasy takeiteasy.cpp -lstdc++
+	cc -O3 DHEUR_HIST -o takeiteasy takeiteasy.cpp -lstdc++
